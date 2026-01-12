@@ -24,7 +24,14 @@ import {
   X,
   PlusCircle,
   Image as ImageIcon,
-  Clock
+  Clock,
+  Copy,
+  LayoutList,
+  Search,
+  Truck,
+  Bike,
+  Wrench,
+  AlertCircle
 } from 'lucide-react';
 import { storage } from '../services/storage';
 import { analyzeVehicleImage } from '../services/aiService';
@@ -74,6 +81,17 @@ const Services: React.FC = () => {
     setView('builder');
   };
 
+  const handleDuplicateTemplate = (template: ChecklistTemplate) => {
+    const duplicated: ChecklistTemplate = {
+      ...JSON.parse(JSON.stringify(template)),
+      id: Date.now().toString(),
+      name: `${template.name} (Cópia)`,
+      isFavorite: false
+    };
+    storage.saveTemplate(duplicated);
+    setTemplates(storage.getTemplates());
+  };
+
   const startInspection = (template: ChecklistTemplate) => {
     setActiveTemplate(JSON.parse(JSON.stringify(template)));
     setFieldValues({});
@@ -89,7 +107,7 @@ const Services: React.FC = () => {
       label: label,
       type: type,
       required: false,
-      options: (type === 'select' || type === 'multiselect') ? [{ id: Date.now().toString(), label: 'Nova Opção', price: 0 }] : undefined
+      options: (type === 'select' || type === 'multiselect' || type === 'select_simple') ? [{ id: Date.now().toString(), label: 'Nova Opção', price: 0 }] : undefined
     };
     setActiveTemplate({
       ...activeTemplate,
@@ -116,12 +134,31 @@ const Services: React.FC = () => {
     setActiveTemplate({ ...activeTemplate, fields: next });
   };
 
-  const addOption = (fieldIndex: number) => {
+  const addOption = (fieldIndex: number, label = 'Nova Opção') => {
     if (!activeTemplate) return;
     const fields = [...activeTemplate.fields];
     const field = fields[fieldIndex];
-    const newOption: FieldOption = { id: Date.now().toString(), label: 'Nova Opção', price: 0 };
+    const newOption: FieldOption = { id: Date.now().toString() + Math.random(), label, price: 0 };
     field.options = [...(field.options || []), newOption];
+    setActiveTemplate({ ...activeTemplate, fields });
+  };
+
+  const loadPresetOptions = (fieldIndex: number, category: 'cars' | 'bikes' | 'trucks' | 'machines' | 'types') => {
+    if (!activeTemplate) return;
+    const presets = {
+      cars: ['Toyota', 'Volkswagen', 'Ford', 'Fiat', 'Chevrolet', 'Honda', 'Hyundai', 'Jeep', 'Renault', 'Nissan', 'BMW', 'Mercedes-Benz', 'Audi', 'Kia', 'Mitsubishi', 'Land Rover', 'Volvo', 'Peugeot', 'Citroën', 'Chery', 'JAC', 'Suzuki', 'Subaru', 'Ram'],
+      bikes: ['Honda', 'Yamaha', 'Kawasaki', 'Suzuki', 'BMW Motorrad', 'Triumph', 'Harley-Davidson', 'Ducati', 'KTM', 'Royal Enfield', 'Dafra', 'Shineray', 'Indian', 'Bajaj'],
+      trucks: ['Mercedes-Benz', 'Volvo Trucks', 'Scania', 'Volkswagen Caminhões', 'Iveco', 'DAF', 'Ford Trucks', 'MAN', 'Foton', 'Sinotruk', 'International', 'MWM'],
+      machines: ['Caterpillar (CAT)', 'JCB', 'Case CE', 'Komatsu', 'John Deere', 'New Holland', 'Sany', 'Volvo CE', 'Bobcat', 'Hyundai CE', 'Massey Ferguson', 'Valtra', 'LS Tractor', 'Yanmar', 'XCMG', 'LiuGong'],
+      types: ['Carro Passeio', 'Picape / SUV', 'Caminhão Leve (VUC)', 'Caminhão Toco', 'Caminhão Truck', 'Caminhão Traçado', 'Cavalo Mecânico', 'Moto', 'Scooter', 'Máquina Agrícola', 'Retroescavadeira', 'Escavadeira Hidráulica', 'Pá Carregadeira', 'Rolo Compactador', 'Van / Furgão', 'Ônibus / Micro']
+    };
+
+    const fields = [...activeTemplate.fields];
+    fields[fieldIndex].options = presets[category].map(label => ({
+      id: Math.random().toString(36).substr(2, 9),
+      label,
+      price: 0
+    }));
     setActiveTemplate({ ...activeTemplate, fields });
   };
 
@@ -173,7 +210,6 @@ const Services: React.FC = () => {
 
   const fillCurrentDateTime = (fieldId: string) => {
     const now = new Date();
-    // Ajuste de fuso horário para formatar ISO localmente
     const offset = now.getTimezoneOffset() * 60000;
     const localISOTime = new Date(now.getTime() - offset).toISOString().slice(0, 16);
     handleFieldChange(fieldId, localISOTime);
@@ -213,13 +249,11 @@ const Services: React.FC = () => {
     if (!activeTemplate) return 0;
     return activeTemplate.fields.reduce((acc, f) => {
       if (f.type === 'price') return acc + (Number(fieldValues[f.id]) || 0);
-      
       if (f.type === 'select' && f.options) {
         const selectedId = fieldValues[f.id];
         const opt = f.options.find(o => o.id === selectedId);
         return acc + (opt?.price || 0);
       }
-      
       if (f.type === 'multiselect' && f.options) {
         const selectedIds = fieldValues[f.id] || [];
         const optsPrice = f.options
@@ -227,7 +261,6 @@ const Services: React.FC = () => {
           .reduce((sum, o) => sum + (o.price || 0), 0);
         return acc + optsPrice;
       }
-      
       return acc;
     }, 0);
   };
@@ -252,16 +285,17 @@ const Services: React.FC = () => {
   // --- RENDER BUILDER ---
   if (view === 'builder' && activeTemplate) {
     const fieldTypesList: { t: FieldType; l: string }[] = [
-      { t: 'text', l: 'Texto Simples' },
-      { t: 'number', l: 'Número' },
+      { t: 'select_simple', l: 'Seleção Simples' },
+      { t: 'select', l: 'Seleção Única (+ Preço)' },
+      { t: 'multiselect', l: 'Seleção Múltipla (+ Preço)' },
+      { t: 'ai_brand_model', l: 'Marca / Modelo (IA)' },
+      { t: 'ai_placa', l: 'Placa (Scanner IA)' },
+      { t: 'photo', l: 'Captura de Imagem' },
       { t: 'date', l: 'Data e Hora' },
       { t: 'boolean', l: 'Caixa de Seleção' },
-      { t: 'ai_placa', l: 'Placa (Scanner IA)' },
+      { t: 'text', l: 'Texto Simples' },
+      { t: 'number', l: 'Número' },
       { t: 'ai_imei', l: 'IMEI (Scanner IA)' },
-      { t: 'select', l: 'Seleção Única (+ Preço)' },
-      { t: 'multiselect', l: 'Seleção Múltipla (+ Preços)' },
-      { t: 'ai_brand_model', l: 'Marca / Modelo (IA)' },
-      { t: 'photo', l: 'Captura de Imagem' },
       { t: 'price', l: 'Preço Manual' },
     ];
 
@@ -297,6 +331,9 @@ const Services: React.FC = () => {
           <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] px-6">Estrutura de Campos</h3>
           {activeTemplate.fields.map((field, idx) => {
             const isEditing = editingFieldId === field.id;
+            const hasOptions = ['select', 'select_simple', 'multiselect'].includes(field.type);
+            const hasPrice = field.type === 'select' || field.type === 'multiselect';
+
             return (
               <div key={field.id} className={`bg-white rounded-[2.5rem] border transition-all duration-300 overflow-hidden ${isEditing ? 'border-indigo-400 shadow-xl ring-4 ring-indigo-50/50' : 'border-slate-100 shadow-sm'}`}>
                 <div className="p-5 flex items-center gap-3">
@@ -325,10 +362,21 @@ const Services: React.FC = () => {
                       />
                     </div>
                     
-                    {(field.type === 'select' || field.type === 'multiselect') && (
+                    {hasOptions && (
                       <div className="space-y-3 pt-2">
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[9px] font-black text-indigo-500 uppercase tracking-widest ml-1">Preenchimento Rápido (Super Presets)</label>
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            <button onClick={() => loadPresetOptions(idx, 'types')} className="bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1 shadow-sm"><LayoutList size={12}/> TIPOS</button>
+                            <button onClick={() => loadPresetOptions(idx, 'cars')} className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1 shadow-sm"><Car size={12}/> CARROS</button>
+                            <button onClick={() => loadPresetOptions(idx, 'bikes')} className="bg-rose-100 text-rose-700 px-3 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1 shadow-sm"><Bike size={12}/> MOTOS</button>
+                            <button onClick={() => loadPresetOptions(idx, 'trucks')} className="bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1 shadow-sm"><Truck size={12}/> CAMINHÕES</button>
+                            <button onClick={() => loadPresetOptions(idx, 'machines')} className="bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1 shadow-sm"><Wrench size={12}/> MÁQUINAS</button>
+                          </div>
+                        </div>
+
                         <div className="flex items-center justify-between">
-                          <label className="text-[9px] font-black text-indigo-500 uppercase tracking-widest ml-1">Opções de Seleção</label>
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Opções Personalizadas</label>
                           <button 
                             onClick={() => addOption(idx)}
                             className="text-[9px] font-black bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg flex items-center gap-1"
@@ -336,25 +384,27 @@ const Services: React.FC = () => {
                             <PlusCircle size={12} /> ADD OPÇÃO
                           </button>
                         </div>
-                        <div className="space-y-2">
+                        <div className="space-y-2 max-h-56 overflow-y-auto pr-2 scrollbar-hide border-y border-slate-100 py-2">
                           {field.options?.map((opt, optIdx) => (
                             <div key={opt.id} className="flex gap-2 items-center bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
                               <input 
                                 className="flex-1 bg-slate-50 border-none rounded-lg py-2 px-3 text-xs font-bold"
                                 value={opt.label}
                                 onChange={(e) => updateOption(idx, optIdx, { label: e.target.value })}
-                                placeholder="Nome da opção"
+                                placeholder="Texto da opção"
                               />
-                              <div className="flex items-center bg-slate-50 rounded-lg px-2 w-24">
-                                <span className="text-[9px] font-black text-slate-400 mr-1">R$</span>
-                                <input 
-                                  type="number"
-                                  className="w-full bg-transparent border-none p-0 text-xs font-black text-indigo-600 focus:ring-0"
-                                  value={opt.price}
-                                  onChange={(e) => updateOption(idx, optIdx, { price: Number(e.target.value) })}
-                                  placeholder="0"
-                                />
-                              </div>
+                              {hasPrice && (
+                                <div className="flex items-center bg-slate-50 rounded-lg px-2 w-24">
+                                  <span className="text-[9px] font-black text-slate-400 mr-1">R$</span>
+                                  <input 
+                                    type="number"
+                                    className="w-full bg-transparent border-none p-0 text-xs font-black text-indigo-600 focus:ring-0"
+                                    value={opt.price}
+                                    onChange={(e) => updateOption(idx, optIdx, { price: Number(e.target.value) })}
+                                    placeholder="0"
+                                  />
+                                </div>
+                              )}
                               <button 
                                 onClick={() => removeOption(idx, optIdx)}
                                 className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"
@@ -406,7 +456,7 @@ const Services: React.FC = () => {
   if (view === 'runner' && activeTemplate) {
     return (
       <div className="space-y-6 pb-32 animate-slide-up max-w-xl mx-auto px-2">
-        <header className="flex items-center justify-between sticky top-0 bg-slate-50/90 backdrop-blur-md py-4 z-50">
+        <header className="flex items-center justify-between sticky top-0 bg-slate-50/90 backdrop-blur-md py-4 z-50 px-2">
           <button onClick={() => setView('menu')} className="p-3 bg-white text-slate-500 rounded-2xl shadow-sm border border-slate-100"><ChevronLeft /></button>
           <div className="text-center">
             <h2 className="text-sm font-black text-slate-400 uppercase tracking-widest">{activeTemplate.name}</h2>
@@ -419,25 +469,25 @@ const Services: React.FC = () => {
 
         <section className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm space-y-4">
            <div className="space-y-2">
-             <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest ml-4">Cliente</label>
+             <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest ml-4">Cliente / Empresa</label>
              <input 
                className="w-full bg-slate-50 border-none rounded-[2rem] py-5 px-8 text-slate-900 font-black text-lg focus:ring-2 focus:ring-indigo-500"
                value={clientName}
                onChange={e => setClientName(e.target.value)}
-               placeholder="Nome do Cliente..."
+               placeholder="Nome do Cliente (Ex: França, LK...)"
              />
            </div>
         </section>
 
         {activeTemplate.fields.map((field) => (
-          <div key={field.id} className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm space-y-5">
+          <div key={field.id} className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm space-y-5 transition-all">
             <div className="flex items-center justify-between px-2">
               <div className="flex items-center gap-2">
                 <h4 className="font-black text-slate-800 text-lg tracking-tight">{field.label}</h4>
                 {field.type === 'date' && (
                   <button 
                     onClick={() => fillCurrentDateTime(field.id)}
-                    className="flex items-center gap-1 px-3 py-1 bg-indigo-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest shadow-md shadow-indigo-100 active:scale-90 transition-all"
+                    className="flex items-center gap-1 px-3 py-1 bg-indigo-600 text-white rounded-full text-[9px] font-black uppercase tracking-widest shadow-md active:scale-90 transition-all"
                   >
                     <Clock size={10} /> Agora
                   </button>
@@ -446,26 +496,22 @@ const Services: React.FC = () => {
               
               {['ai_placa', 'ai_brand_model', 'ai_imei', 'photo'].includes(field.type) && (
                 <div className="flex gap-2">
-                  <button 
-                    onClick={() => handleScan(field.id)} 
-                    className="p-2.5 text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors"
-                    title="Câmera"
-                  >
-                    <Camera size={20} />
-                  </button>
-                  <button 
-                    onClick={() => handleGallery(field.id)} 
-                    className="p-2.5 text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors"
-                    title="Galeria"
-                  >
-                    <ImageIcon size={20} />
-                  </button>
+                  <button onClick={() => handleScan(field.id)} className="p-2.5 text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors shadow-sm"><Camera size={20} /></button>
+                  <button onClick={() => handleGallery(field.id)} className="p-2.5 text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors shadow-sm"><ImageIcon size={20} /></button>
                 </div>
               )}
             </div>
             
             {field.type === 'ai_placa' && fieldValues[field.id] && (
-              <div className="placa-mercosul"><div className="texto-placa uppercase">{fieldValues[field.id]}</div></div>
+              <div className="space-y-4 animate-in zoom-in duration-300">
+                <div className="flex items-center justify-center gap-2 py-3 bg-indigo-50 rounded-2xl border border-indigo-100 shadow-sm">
+                   <AlertCircle size={14} className="text-indigo-600" />
+                   <span className="text-xs font-black text-indigo-600 uppercase tracking-widest">Placa Detectada: {fieldValues[field.id]}</span>
+                </div>
+                <div className="placa-mercosul shadow-xl">
+                  <div className="texto-placa uppercase">{fieldValues[field.id]}</div>
+                </div>
+              </div>
             )}
 
             {field.type === 'price' && (
@@ -481,16 +527,19 @@ const Services: React.FC = () => {
               </div>
             )}
 
-            {field.type === 'select' && (
+            {(field.type === 'select' || field.type === 'select_simple') && (
               <div className="grid grid-cols-1 gap-2">
                 {field.options?.map(opt => (
                   <button
                     key={opt.id}
                     onClick={() => handleFieldChange(field.id, opt.id)}
-                    className={`flex items-center justify-between py-4 px-6 rounded-2xl font-black text-sm transition-all ${fieldValues[field.id] === opt.id ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400'}`}
+                    className={`flex items-center justify-between py-4 px-6 rounded-2xl font-black text-sm transition-all text-left group ${fieldValues[field.id] === opt.id ? 'bg-indigo-600 text-white shadow-lg ring-4 ring-indigo-100 scale-[1.02]' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
                   >
                     <span>{opt.label}</span>
-                    {opt.price > 0 && <span>+ R${opt.price}</span>}
+                    <div className="flex items-center gap-2">
+                       {(field.type === 'select' && opt.price > 0) && <span className="bg-white/20 px-2 py-1 rounded-lg">+ R${opt.price}</span>}
+                       {fieldValues[field.id] === opt.id && <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center text-indigo-600 shadow-sm"><Check size={16} strokeWidth={4} /></div>}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -508,10 +557,13 @@ const Services: React.FC = () => {
                         const next = selected ? current.filter((id: string) => id !== opt.id) : [...current, opt.id];
                         handleFieldChange(field.id, next);
                       }}
-                      className={`flex items-center justify-between py-4 px-6 rounded-2xl font-black text-sm transition-all ${selected ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400'}`}
+                      className={`flex items-center justify-between py-4 px-6 rounded-2xl font-black text-sm transition-all text-left ${selected ? 'bg-indigo-600 text-white shadow-lg ring-4 ring-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
                     >
                       <span>{opt.label}</span>
-                      {opt.price > 0 && <span>+ R${opt.price}</span>}
+                      <div className="flex items-center gap-2">
+                        {opt.price > 0 && <span className="bg-white/20 px-2 py-1 rounded-lg">+ R${opt.price}</span>}
+                        {selected && <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center text-indigo-600 shadow-sm"><Check size={16} strokeWidth={4} /></div>}
+                      </div>
                     </button>
                   );
                 })}
@@ -519,14 +571,14 @@ const Services: React.FC = () => {
             )}
 
             {field.type === 'boolean' && (
-               <div className="flex gap-2">
+               <div className="flex gap-3">
                   {[true, false].map(v => (
                     <button 
                       key={String(v)}
                       onClick={() => handleFieldChange(field.id, v)}
-                      className={`flex-1 py-4 rounded-2xl font-black uppercase text-xs tracking-widest ${fieldValues[field.id] === v ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400'}`}
+                      className={`flex-1 py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest transition-all shadow-sm ${fieldValues[field.id] === v ? 'bg-indigo-600 text-white ring-4 ring-indigo-100' : 'bg-slate-50 text-slate-400'}`}
                     >
-                      {v ? 'Sim' : 'Não'}
+                      {v ? 'Sim / OK' : 'Não / Falha'}
                     </button>
                   ))}
                </div>
@@ -535,30 +587,19 @@ const Services: React.FC = () => {
             {field.type === 'photo' && (
                <div className="space-y-4">
                   {fieldValues[field.id] ? (
-                    <div className="relative">
-                      <img src={fieldValues[field.id]} className="w-full h-64 rounded-[2rem] object-cover shadow-lg border-4 border-white" />
-                      <button 
-                        onClick={() => handleFieldChange(field.id, null)}
-                        className="absolute top-4 right-4 p-2 bg-rose-500 text-white rounded-full shadow-lg"
-                      >
-                        <X size={20} />
-                      </button>
+                    <div className="relative animate-in zoom-in duration-300">
+                      <img src={fieldValues[field.id]} className="w-full h-72 rounded-[3rem] object-cover shadow-2xl border-8 border-white" />
+                      <button onClick={() => handleFieldChange(field.id, null)} className="absolute top-4 right-4 p-3 bg-rose-500 text-white rounded-full shadow-lg active:scale-90 transition-all"><X size={20} /></button>
                     </div>
                   ) : (
                     <div className="flex gap-4">
-                      <button 
-                        onClick={() => handleScan(field.id)} 
-                        className="flex-1 py-12 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2.5rem] flex flex-col items-center justify-center gap-3 text-slate-400 hover:border-indigo-300 hover:text-indigo-400 transition-all"
-                      >
-                        <Camera size={32} />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Tirar Foto</span>
+                      <button onClick={() => handleScan(field.id)} className="flex-1 py-14 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[3rem] flex flex-col items-center justify-center gap-4 text-slate-400 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all group">
+                        <div className="p-4 bg-white rounded-2xl shadow-sm group-hover:scale-110 transition-transform"><Camera size={32} /></div>
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em]">Capturar Foto</span>
                       </button>
-                      <button 
-                        onClick={() => handleGallery(field.id)} 
-                        className="flex-1 py-12 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[2.5rem] flex flex-col items-center justify-center gap-3 text-slate-400 hover:border-indigo-300 hover:text-indigo-400 transition-all"
-                      >
-                        <ImageIcon size={32} />
-                        <span className="text-[10px] font-black uppercase tracking-widest">Abrir Galeria</span>
+                      <button onClick={() => handleGallery(field.id)} className="flex-1 py-14 bg-slate-50 border-2 border-dashed border-slate-200 rounded-[3rem] flex flex-col items-center justify-center gap-4 text-slate-400 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all group">
+                        <div className="p-4 bg-white rounded-2xl shadow-sm group-hover:scale-110 transition-transform"><ImageIcon size={32} /></div>
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em]">Abrir Galeria</span>
                       </button>
                     </div>
                   )}
@@ -566,13 +607,16 @@ const Services: React.FC = () => {
             )}
 
             {['text', 'number', 'date', 'ai_brand_model', 'ai_imei'].includes(field.type) && (
-               <input 
-                 type={field.type === 'number' ? 'number' : field.type === 'date' ? 'datetime-local' : 'text'}
-                 value={fieldValues[field.id] || ''}
-                 onChange={(e) => handleFieldChange(field.id, e.target.value)}
-                 className="w-full bg-slate-50 border-none rounded-[2rem] py-5 px-8 text-slate-900 font-bold focus:ring-2 focus:ring-indigo-500 transition-all"
-                 placeholder="..."
-               />
+               <div className="relative group">
+                 {field.type === 'ai_brand_model' && <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300" size={20} />}
+                 <input 
+                   type={field.type === 'number' ? 'number' : field.type === 'date' ? 'datetime-local' : 'text'}
+                   value={fieldValues[field.id] || ''}
+                   onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                   className={`w-full bg-slate-50 border-none rounded-[2rem] py-5 px-8 text-slate-900 font-black focus:ring-4 focus:ring-indigo-100 transition-all placeholder:text-slate-300 ${field.type === 'ai_brand_model' ? 'pl-16' : ''}`}
+                   placeholder={field.type === 'ai_brand_model' ? "Marca e Modelo..." : "Escreva aqui..."}
+                 />
+               </div>
             )}
           </div>
         ))}
@@ -580,13 +624,8 @@ const Services: React.FC = () => {
         <input ref={fileInputRef} type="file" className="hidden" accept="image/*" capture="environment" onChange={onFileChange} />
         <input ref={galleryInputRef} type="file" className="hidden" accept="image/*" onChange={onFileChange} />
 
-        <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-slate-50 to-transparent z-40 max-w-xl mx-auto">
-          <button 
-            onClick={finishInspection}
-            className="w-full py-6 rounded-[2.5rem] bg-indigo-600 text-white font-black shadow-2xl uppercase tracking-[0.2em] text-sm flex items-center justify-center gap-3 active:scale-95 transition-all"
-          >
-            <CheckCircle2 /> Finalizar Vistoria
-          </button>
+        <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent z-40 max-w-xl mx-auto">
+          <button onClick={finishInspection} className="w-full py-6 rounded-[2.5rem] bg-indigo-600 text-white font-black shadow-2xl shadow-indigo-200 uppercase tracking-[0.2em] text-sm flex items-center justify-center gap-3 active:scale-95 transition-all"><CheckCircle2 /> Finalizar e Salvar</button>
         </div>
       </div>
     );
@@ -598,7 +637,7 @@ const Services: React.FC = () => {
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tighter">CheckMaster</h2>
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.3em] flex items-center gap-1">Modelos de Formulários</p>
+          <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.3em] flex items-center gap-1">Modelos Profissionais</p>
         </div>
         <button onClick={handleCreateTemplate} className="p-5 bg-indigo-600 text-white rounded-[2rem] shadow-2xl active:scale-95 transition-all">
           <Plus size={32} />
@@ -614,39 +653,30 @@ const Services: React.FC = () => {
                   <h4 className="font-black text-slate-900 text-2xl tracking-tighter">{template.name}</h4>
                   {template.isFavorite && <Star size={16} className="text-amber-500" fill="currentColor" />}
                 </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">{template.fields.length} itens de verificação</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">{template.fields.length} campos configurados</p>
               </div>
-              <button 
-                onClick={() => handleEditTemplate(template)}
-                className="p-4 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-[1.8rem] transition-all"
-              >
-                <Settings2 size={24} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button onClick={() => handleDuplicateTemplate(template)} className="p-3 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all" title="Duplicar"><Copy size={20} /></button>
+                <button onClick={() => handleEditTemplate(template)} className="p-3 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all"><Settings2 size={20} /></button>
+              </div>
             </div>
-            <button 
-              onClick={() => startInspection(template)}
-              className="w-full bg-slate-50 text-slate-900 py-5 rounded-[2rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center gap-4"
-            >
-              <ListChecks size={24} /> Iniciar Vistoria
-            </button>
+            <button onClick={() => startInspection(template)} className="w-full bg-slate-50 text-slate-900 py-5 rounded-[2rem] font-black text-sm uppercase tracking-[0.2em] hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center gap-4"><ListChecks size={24} /> Iniciar Vistoria</button>
           </div>
         ))}
-        
-        <button 
-          onClick={handleCreateTemplate}
-          className="border-4 border-dashed border-slate-200 rounded-[3.5rem] p-12 flex flex-col items-center justify-center gap-3 text-slate-300 hover:text-indigo-400 hover:border-indigo-200 transition-all active:scale-95"
-        >
-          <Plus size={48} />
-          <span className="font-black text-xs uppercase tracking-widest">Criar Novo Formulário</span>
-        </button>
+        <button onClick={handleCreateTemplate} className="border-4 border-dashed border-slate-200 rounded-[3.5rem] p-12 flex flex-col items-center justify-center gap-3 text-slate-300 hover:text-indigo-400 hover:border-indigo-200 transition-all active:scale-95 group"><div className="p-6 bg-white rounded-full shadow-sm group-hover:scale-110 transition-transform"><Plus size={48} /></div><span className="font-black text-xs uppercase tracking-widest">Novo Modelo</span></button>
       </section>
 
       {isAnalyzing && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white p-10 rounded-[4rem] text-center space-y-4 animate-in zoom-in duration-300">
-            <Loader2 className="w-16 h-16 text-indigo-600 animate-spin mx-auto" />
-            <h3 className="text-xl font-black text-slate-900">Processando IA...</h3>
-            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Extraindo dados veiculares</p>
+          <div className="bg-white p-12 rounded-[4rem] text-center space-y-6 animate-in zoom-in duration-300 shadow-2xl">
+            <div className="relative">
+               <Loader2 className="w-20 h-20 text-indigo-600 animate-spin mx-auto" />
+               <Scan className="absolute inset-0 m-auto w-8 h-8 text-indigo-400 animate-pulse" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-black text-slate-900">Analisando Imagem...</h3>
+              <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-2">Nossa IA está extraindo os dados</p>
+            </div>
           </div>
         </div>
       )}

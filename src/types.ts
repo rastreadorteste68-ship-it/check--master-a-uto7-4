@@ -1,9 +1,11 @@
+
 export type FieldType = 
   | 'text' 
   | 'number' 
   | 'date' 
   | 'boolean' 
   | 'select' 
+  | 'select_simple'
   | 'multiselect' 
   | 'ai_placa' 
   | 'ai_imei'
